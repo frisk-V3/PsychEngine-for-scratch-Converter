@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>Psych Engine 変換</title>
+    <style>
+        body { font-family: 'Consolas', monospace; background: #0d1117; color: #58a6ff; padding: 20px; }
+        .main-box { max-width: 700px; margin: auto; background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 25px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        h1 { text-align: center; color: #f0f6fc; border-bottom: 2px solid #30363d; padding-bottom: 15px; margin-top: 0; }
+        .file-input { background: #21262d; border: 1px solid #30363d; color: #c9d1d9; padding: 15px; width: 100%; box-sizing: border-box; border-radius: 6px; cursor: pointer; }
+        #log-window { background: #000; border: 1px solid #30363d; height: 180px; overflow-y: auto; margin: 20px 0; padding: 12px; font-size: 13px; border-radius: 6px; white-space: pre-wrap; }
+        .btn-dl { background: #238636; color: #ffffff; border: none; padding: 15px; width: 100%; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 16px; transition: 0.2s; }
+        .btn-dl:hover:not(:disabled) { background: #2ea043; }
+        .btn-dl:disabled { background: #30363d; color: #8b949e; cursor: not-allowed; }
+        .log-ok { color: #3fb950; }
+        .log-err { color: #f85149; }
+        .log-info { color: #8b949e; }
+    </style>
+</head>
+<body>
+
+<div class="main-box">
+    <h1>Psych Engine 変換</h1>
+    
+    <input type="file" id="fileInput" accept=".json" class="file-input">
+    
+    <div id="log-window">【システムログ】JSONファイルを選択してください...</div>
+    
+    <button id="downloadBtn" class="btn-dl" disabled>TXTを保存する</button>
+</div>
+
+<script>
+    const fileInput = document.getElementById('fileInput');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const logWindow = document.getElementById('log-window');
+    
+    let convertedContent = "";
+    let outputFileName = "";
+
+    function writeLog(text, className = '') {
+        const span = document.createElement('div');
+        span.className = className;
+        const now = new Date().toLocaleTimeString();
+        span.innerText = `[${now}] ${text}`;
+        logWindow.appendChild(span);
+        logWindow.scrollTop = logWindow.scrollHeight;
+    }
+
+    fileInput.onchange = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        // ファイル名をJSONと一致させる
+        outputFileName = file.name.replace(/\.[^/.]+$/, "") + ".txt";
+        writeLog(`読込開始: ${file.name}`, 'log-info');
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            try {
+                const data = JSON.parse(event.target.result);
+                // Psych Engineの階層(notesまたはsong.notes)を自動判別
+                const sections = (data.song && data.song.notes) ? data.song.notes : data.notes;
+
+                if (!sections || !Array.isArray(sections)) {
+                    throw new Error("有効な 'notes' データが見つかりません。");
+                }
+
+                let resultLines = [];
+                let count = 0;
+
+                sections.forEach(section => {
+                    if (section.sectionNotes && Array.isArray(section.sectionNotes)) {
+                        section.sectionNotes.forEach(note => {
+                            const rawTime = note[0];
+                            const lane    = note[1];
+                            const rawLen  = note[2];
+                            const rawType = note[3];
+
+                            // ミリ秒を秒に変換 (387 -> 0.387)
+                            const time = rawTime / 1000;
+                            const length = rawLen / 1000;
+
+                            // 特殊ノーツ(rawType)が 0, "", null, undefined なら空にする
+                            const typeStr = (rawType === 0 || !rawType) ? "" : rawType;
+
+                            // 指定フォーマット: {時間} :{レーン} :{特殊ノーツ} :{ロングノーツ}
+                            resultLines.push(`{${time}} :{${lane}} :{${typeStr}} :{${length}}`);
+                            count++;
+                        });
+                    }
+                });
+
+                convertedContent = resultLines.join('\n');
+                writeLog(`解析成功: ${count}個のノーツを処理しました。`, 'log-ok');
+                writeLog(`保存ファイル名: ${outputFileName}`, 'log-info');
+                downloadBtn.disabled = false;
+
+            } catch (err) {
+                writeLog(`エラー: ${err.message}`, 'log-err');
+                downloadBtn.disabled = true;
+            }
+        };
+        reader.readAsText(file);
+    };
+
+    downloadBtn.onclick = () => {
+        const blob = new Blob([convertedContent], { type: 'text/plain' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = outputFileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(a.href);
+        writeLog(`保存完了: ${outputFileName}`, 'log-ok');
+    };
+</script>
+
+</body>
+</html>
